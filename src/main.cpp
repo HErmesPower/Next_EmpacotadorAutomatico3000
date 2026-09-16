@@ -94,20 +94,59 @@ void loop() {
   uint16_t d3 = sensor3.readRangeContinuousMillimeters();
   if (sensor3.timeoutOccurred()) { Serial.print(F("TIMEOUT S3 | ")); }
 
-  // Mapeia distancia (50mm a 500mm) para angulo do servo (0 a 180 graus)
-  // Caso ocorra timeout, os valores podem ser altos e serao limitados a 500 (180 graus).
-  int angulo1 = map(constrain(d1, 50, 500), 50, 500, 0, 180);
-  int angulo2 = map(constrain(d2, 50, 500), 50, 500, 0, 180);
-  int angulo3 = map(constrain(d3, 50, 500), 50, 500, 0, 180);
+  // 1. ACUMULANDO AS LEITURAS (Média perfeita de 1 segundo)
+  static unsigned long ultimoTempo = 0;
+  static long somaD1 = 0, somaD2 = 0, somaD3 = 0;
+  static int qtdLeituras = 0;
 
-  servo1.write(angulo1);
-  servo2.write(angulo2);
-  servo3.write(angulo3);
+  somaD1 += d1;
+  somaD2 += d2;
+  somaD3 += d3;
+  qtdLeituras++;
 
-  // Telemetria via Monitor Serial
-  Serial.print(F("S1: ")); Serial.print(d1); Serial.print(F("mm | "));
-  Serial.print(F("S2: ")); Serial.print(d2); Serial.print(F("mm | "));
-  Serial.print(F("S3: ")); Serial.print(d3); Serial.println(F("mm"));
+  // A cada 1000 milissegundos (1 segundo), calculamos a média e movemos os servos
+  if (millis() - ultimoTempo >= 1000) {
+    int mediaD1 = somaD1 / qtdLeituras;
+    int mediaD2 = somaD2 / qtdLeituras;
+    int mediaD3 = somaD3 / qtdLeituras;
 
+    // Mapeia a distancia media (50mm a 500mm) para angulo do servo (0 a 180 graus)
+    int angulo1 = map(constrain(mediaD1, 50, 500), 50, 500, 0, 180);
+    int angulo2 = map(constrain(mediaD2, 50, 500), 50, 500, 0, 180);
+    int angulo3 = map(constrain(mediaD3, 50, 500), 50, 500, 0, 180);
+
+    // 2. APLICANDO ZONA MORTA (Deadband)
+    static int ultimoAngulo1 = -1;
+    static int ultimoAngulo2 = -1;
+    static int ultimoAngulo3 = -1;
+    
+    // Aviso Servo 1 (360): o valor 90 para ele, mas a física exige um de 180 pra parar certo.
+    if (abs(angulo1 - ultimoAngulo1) >= 2) {
+      servo1.write(angulo1);
+      ultimoAngulo1 = angulo1;
+    }
+    
+    if (abs(angulo2 - ultimoAngulo2) >= 2) {
+      servo2.write(angulo2);
+      ultimoAngulo2 = angulo2;
+    }
+    
+    if (abs(angulo3 - ultimoAngulo3) >= 2) {
+      servo3.write(angulo3);
+      ultimoAngulo3 = angulo3;
+    }
+
+    // Telemetria via Monitor Serial (impressa 1x por segundo)
+    Serial.print(F("S1: ")); Serial.print(mediaD1); Serial.print(F("mm | "));
+    Serial.print(F("S2: ")); Serial.print(mediaD2); Serial.print(F("mm | "));
+    Serial.print(F("S3: ")); Serial.print(mediaD3); Serial.println(F("mm"));
+
+    // Reseta os acumuladores para o próximo 1 segundo
+    somaD1 = 0; somaD2 = 0; somaD3 = 0;
+    qtdLeituras = 0;
+    ultimoTempo = millis();
+  }
+
+  // O loop roda rápido (a cada ~30ms), colhendo várias medidas por segundo!
   delay(30);
 }
